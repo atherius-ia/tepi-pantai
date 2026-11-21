@@ -1,9 +1,10 @@
--- Auto Farm (Auto Dig Zona Kerang Default 8 + Teleport Opsional + Move To Aman + Auto Net + Auto Fishing 25% + Auto Sell + Anti AFK)
+-- Auto Farm (Save & Auto Load Config + Auto Take Shovel + Auto Dig Zona 8 + Auto Fish 25% + Auto Net + Auto Sell + Anti AFK)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local GuiService = game:GetService("GuiService")
+local HttpService = game:GetService("HttpService")
 local okVim, VirtualInputManager = pcall(function() return game:GetService("VirtualInputManager") end)
 if not okVim then VirtualInputManager = nil end
 
@@ -11,10 +12,12 @@ local lp = Players.LocalPlayer
 local env = (getgenv and getgenv()) or _G
 if env.AutoDigCleanup then pcall(env.AutoDigCleanup) end
 
+local CONFIG_FILE = "AutoDigFishNet_Config.json"
 local alive = true
 local conns = {}
 local isGliding = false
 local isDigging = false
+local isTakingShovel = false
 local isFishing = false
 local isNetting = false
 local isSelling = false
@@ -74,10 +77,10 @@ local function round(o, r)
     c.Parent = o
 end
 
-local WIN_W, WIN_H = 340, 385
+local WIN_W, WIN_H = 355, 390
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, WIN_W, 0, WIN_H)
-main.Position = UDim2.new(0, 12, 0.5, -192)
+main.Position = UDim2.new(0, 12, 0.5, -195)
 main.BackgroundColor3 = COL_BG
 main.BorderSizePixel = 0
 main.Active = true
@@ -86,7 +89,7 @@ main.Parent = gui
 round(main, 10)
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -145, 0, 28)
+title.Size = UDim2.new(1, -182, 0, 28)
 title.Position = UDim2.new(0, 10, 0, 4)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
@@ -111,7 +114,8 @@ local function topBtn(text, col, xOff, w)
 end
 local closeBtn = topBtn("X", COL_RED, -34, 26)
 local minBtn = topBtn("-", COL_BTN, -64, 26)
-local copyBtn = topBtn("Salin", COL_GREEN, -116, 46)
+local copyBtn = topBtn("Salin", COL_GREEN, -114, 44)
+local topSaveBtn = topBtn("Save", COL_BLUE, -162, 42)
 
 -- Tab Bar
 local tabBar = Instance.new("Frame")
@@ -291,15 +295,17 @@ local function mkZoneSelector(parent, label, default)
     return tb, minusBtn, plusBtn
 end
 
--- TAB 1: DIG (BERDASARKAN ZONA KERANG, DEFAULT ZONA 8)
+-- TAB 1: DIG (BERDASARKAN ZONA KERANG, DEFAULT ZONA 8 + AUTO TAKE SHOVEL)
 local digBtn = mkBtn(pageDig, "Auto Dig: OFF", COL_BTN)
 local digTpBtn = mkBtn(pageDig, "Teleport Dig: OFF", COL_BTN)
+local autoShovelBtn = mkBtn(pageDig, "Auto Ambil Shovel (TP): ON", COL_GREEN)
 local zoneFilter, zoneMinusBtn, zonePlusBtn = mkZoneSelector(pageDig, "Target Zona Kerang", "8")
 local glideBtn = mkBtn(pageDig, "Auto Meluncur ke Titik: ON", COL_GREEN)
 local glideSpeed = mkField(pageDig, "Kecepatan meluncur", "90")
 local digMaxWait = mkField(pageDig, "Maks tunggu gali (dtk)", "12")
 local digEvery = mkField(pageDig, "Jeda antar spot (dtk)", "0.3")
 local toolBtn = mkBtn(pageDig, "Equip & klik shovel: ON", COL_GREEN)
+local takeShovelNowBtn = mkBtn(pageDig, "Tes Ambil Shovel Sekarang", COL_ORANGE)
 local onceBtn = mkBtn(pageDig, "Tes ke spot zona & dig 1x", COL_BLUE)
 
 local digStatusLbl = Instance.new("TextLabel")
@@ -374,15 +380,50 @@ local sellEvery = mkField(pageSell, "Auto Sell tiap (detik)", "30")
 local sellKeys = mkField(pageSell, "Kata kunci Sell / NPC", "sell,shell,trader,jual,merchant,npcsell")
 local sellNowBtn = mkBtn(pageSell, "Tes Sell All Sekarang", COL_BLUE)
 
--- TAB 5: LAINNYA & LOG
+-- TAB 5: LAINNYA (CONFIG + ANTI AFK + SPEED + LOG)
+local saveConfigBtn = mkBtn(pageMisc, "Save Config Sekarang", COL_GREEN)
+local loadConfigBtn = mkBtn(pageMisc, "Load Config Sekarang", COL_BLUE)
+local autoLoadBtn = mkBtn(pageMisc, "Auto Load Config: ON", COL_GREEN)
+
+local cfgStatusLbl = Instance.new("TextLabel")
+cfgStatusLbl.LayoutOrder = nextOrder(pageMisc)
+cfgStatusLbl.Size = UDim2.new(1, -2, 0, 30)
+cfgStatusLbl.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+cfgStatusLbl.TextColor3 = Color3.fromRGB(165, 215, 255)
+cfgStatusLbl.Font = Enum.Font.Code
+cfgStatusLbl.TextSize = 10
+cfgStatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+cfgStatusLbl.TextYAlignment = Enum.TextYAlignment.Top
+cfgStatusLbl.TextWrapped = true
+cfgStatusLbl.Text = "Config: Siap (Auto Load aktif)"
+cfgStatusLbl.Parent = pageMisc
+round(cfgStatusLbl, 6)
+
+local afkBtn = mkBtn(pageMisc, "Anti AFK (Multi-Layer): ON", COL_GREEN)
+local afkIntervalBox = mkField(pageMisc, "Interval Anti AFK (dtk)", "120")
+local afkTestBtn = mkBtn(pageMisc, "Tes Anti AFK Sekarang", COL_BLUE)
+
+local afkStatusLbl = Instance.new("TextLabel")
+afkStatusLbl.LayoutOrder = nextOrder(pageMisc)
+afkStatusLbl.Size = UDim2.new(1, -2, 0, 34)
+afkStatusLbl.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+afkStatusLbl.TextColor3 = Color3.fromRGB(160, 235, 180)
+afkStatusLbl.Font = Enum.Font.Code
+afkStatusLbl.TextSize = 10
+afkStatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+afkStatusLbl.TextYAlignment = Enum.TextYAlignment.Top
+afkStatusLbl.TextWrapped = true
+afkStatusLbl.Text = "Status Anti AFK: Aktif | Pulse: 0x"
+afkStatusLbl.Parent = pageMisc
+round(afkStatusLbl, 6)
+
 local speedBtn = mkBtn(pageMisc, "Speed Jalan: OFF", COL_BTN)
 local speedVal = mkField(pageMisc, "Nilai WalkSpeed", "40")
-local afkBtn = mkBtn(pageMisc, "Anti AFK: ON", COL_GREEN)
-local scanBtn = mkBtn(pageMisc, "Deep Scan (zona kerang, penjual, remote)", COL_BLUE)
+local scanBtn = mkBtn(pageMisc, "Deep Scan (zona, shovel, penjual)", COL_BLUE)
 
 local logBox = Instance.new("TextLabel")
 logBox.LayoutOrder = nextOrder(pageMisc)
-logBox.Size = UDim2.new(1, -2, 0, 125)
+logBox.Size = UDim2.new(1, -2, 0, 115)
 logBox.BackgroundColor3 = Color3.fromRGB(14, 14, 20)
 logBox.TextColor3 = Color3.fromRGB(210, 210, 220)
 logBox.Font = Enum.Font.Code
@@ -408,7 +449,7 @@ local lines = {}
 local function logLine(s)
     lines[#lines + 1] = s
     if #lines > 400 then table.remove(lines, 1) end
-    local from = math.max(1, #lines - 8)
+    local from = math.max(1, #lines - 7)
     logBox.Text = table.concat(lines, "\n", from, #lines)
 end
 copyBtn.Activated:Connect(function()
@@ -426,13 +467,129 @@ local function setToggle(btn, text, on, activeColor)
 end
 
 ---------------------------------------------------------------- State
-local digOn, glideOn, toolOn, fishOn, netOn, autoNetPullOn, sellOn, speedOn, afkOn =
-    false, true, true, false, false, true, false, false, true
+local digOn, glideOn, toolOn, autoTakeShovelOn, fishOn, netOn, autoNetPullOn, sellOn, speedOn, afkOn, autoLoadOn =
+    false, true, true, true, false, false, true, false, false, true, true
 local digTpOn, fishTpOn, netTpOn, sellTpOn = false, false, false, false
 local sellRemoteMode = true
 local savedFishPos = nil
+local cachedTakeShovelPos = nil
 local lastTarget = nil
 
+---------------------------------------------------------------- ANTI AFK MULTI-LAYER
+local afkPulseCount = 0
+local afkLastMethod = "Siap"
+
+local function disableDefaultIdledConnections()
+    if not getconnections then return 0 end
+    local disabled = 0
+    pcall(function()
+        for _, conn in ipairs(getconnections(lp.Idled)) do
+            if conn.Disable then
+                conn:Disable()
+                disabled = disabled + 1
+            elseif conn.Disconnect then
+                conn:Disconnect()
+                disabled = disabled + 1
+            end
+        end
+    end)
+    return disabled
+end
+
+local function updateAfkStatusLabel()
+    if not afkOn then
+        afkStatusLbl.Text = "Status Anti AFK: OFF (Nonaktif)"
+        afkStatusLbl.TextColor3 = Color3.fromRGB(220, 160, 160)
+        return
+    end
+    local timeStr = os.date("%H:%M:%S")
+    afkStatusLbl.TextColor3 = Color3.fromRGB(160, 235, 180)
+    afkStatusLbl.Text = string.format("Status Anti AFK: AKTIF | Pulse: %dx (%s)\nMetode: %s", afkPulseCount, timeStr, afkLastMethod)
+end
+
+local function triggerAntiAfkPulse(reason, announce)
+    if not alive then return end
+    local usedMethods = {}
+
+    local okVu = pcall(function()
+        local cam = workspace.CurrentCamera
+        local cf = cam and cam.CFrame or CFrame.new()
+        VirtualUser:CaptureController()
+        VirtualUser:Button2Down(Vector2.new(0, 0), cf)
+        task.wait(0.03)
+        VirtualUser:Button2Up(Vector2.new(0, 0), cf)
+        VirtualUser:ClickButton2(Vector2.new(0, 0))
+    end)
+    if okVu then
+        usedMethods[#usedMethods + 1] = "VirtualUser"
+    end
+
+    if VirtualInputManager then
+        local okVimKey = pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F15, false, game)
+            task.wait(0.03)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F15, false, game)
+        end)
+        if okVimKey then
+            usedMethods[#usedMethods + 1] = "VIM-F15"
+        end
+    end
+
+    local neutralized = disableDefaultIdledConnections()
+    if neutralized > 0 then
+        usedMethods[#usedMethods + 1] = "BypassIdled(" .. neutralized .. ")"
+    end
+
+    afkPulseCount = afkPulseCount + 1
+    afkLastMethod = (#usedMethods > 0) and table.concat(usedMethods, "+") or "Heartbeat"
+    updateAfkStatusLabel()
+
+    if announce then
+        logLine(string.format("[anti-afk] Pulse #%d (%s) -> %s", afkPulseCount, reason or "auto", afkLastMethod))
+    end
+end
+
+do
+    local bypassed = disableDefaultIdledConnections()
+    afkLastMethod = bypassed > 0 and ("BypassIdled(" .. bypassed .. ")+VirtualUser") or "VirtualUser+VIM"
+    updateAfkStatusLabel()
+end
+
+table.insert(conns, lp.Idled:Connect(function()
+    if not afkOn then return end
+    task.spawn(function()
+        triggerAntiAfkPulse("Idled Event", true)
+    end)
+end))
+
+task.spawn(function()
+    while alive do
+        local interval = math.clamp(tonumber(afkIntervalBox.Text) or 120, 20, 600)
+        task.wait(interval)
+        if afkOn and alive then
+            triggerAntiAfkPulse("Timer " .. interval .. "s", false)
+        end
+    end
+end)
+
+afkBtn.Activated:Connect(function()
+    afkOn = not afkOn
+    setToggle(afkBtn, "Anti AFK (Multi-Layer): ", afkOn)
+    if afkOn then
+        triggerAntiAfkPulse("Aktifkan", true)
+    else
+        updateAfkStatusLabel()
+        logLine("[anti-afk] Dimatikan.")
+    end
+end)
+
+afkTestBtn.Activated:Connect(function()
+    task.spawn(function()
+        triggerAntiAfkPulse("Tes Manual", true)
+    end)
+end)
+
+---------------------------------------------------------------- Zona & Mode Controls
 local function formatZoneDisplay(raw)
     local f = trim(raw):lower()
     if f == "" or f == "all" or f == "semua" or f == "*" then
@@ -515,6 +672,12 @@ digTpBtn.Activated:Connect(function()
     logLine("[dig] Mode gerak: " .. (digTpOn and "TELEPORT" or "MOVE TO (Meluncur)"))
 end)
 
+autoShovelBtn.Activated:Connect(function()
+    autoTakeShovelOn = not autoTakeShovelOn
+    setToggle(autoShovelBtn, "Auto Ambil Shovel (TP): ", autoTakeShovelOn)
+    logLine("[shovel] Auto Ambil Shovel: " .. (autoTakeShovelOn and "ON" or "OFF"))
+end)
+
 fishBtn.Activated:Connect(function()
     fishOn = not fishOn
     setToggle(fishBtn, "Auto Fishing: ", fishOn)
@@ -565,7 +728,7 @@ end)
 
 autoNetToggleBtn.Activated:Connect(function()
     autoNetPullOn = not autoNetPullOn
-    setToggle(autoNetToggleBtn, "Auto Nyalakan 'AUTO ON': ", autoNetPullOn)
+    setToggle(autoNetPullOn and autoNetToggleBtn or autoNetToggleBtn, "Auto Nyalakan 'AUTO ON': ", autoNetPullOn)
 end)
 
 glideBtn.Activated:Connect(function()
@@ -601,9 +764,257 @@ sellModeBtn.Activated:Connect(function()
     sellModeBtn.BackgroundColor3 = sellRemoteMode and COL_BLUE or COL_ORANGE
 end)
 
-afkBtn.Activated:Connect(function()
-    afkOn = not afkOn
-    setToggle(afkBtn, "Anti AFK: ", afkOn)
+---------------------------------------------------------------- SAVE CONFIG & AUTO LOAD CONFIG
+local function vecToTable(v)
+    if typeof(v) ~= "Vector3" then return nil end
+    return { x = v.X, y = v.Y, z = v.Z }
+end
+
+local function tableToVec(t)
+    if type(t) == "table" and tonumber(t.x) and tonumber(t.y) and tonumber(t.z) then
+        return Vector3.new(tonumber(t.x), tonumber(t.y), tonumber(t.z))
+    end
+    return nil
+end
+
+local function saveConfig(silent)
+    local payload = {
+        autoLoadOn = autoLoadOn,
+        -- Dig
+        digOn = digOn,
+        digTpOn = digTpOn,
+        autoTakeShovelOn = autoTakeShovelOn,
+        zoneFilter = zoneFilter.Text,
+        glideOn = glideOn,
+        glideSpeed = glideSpeed.Text,
+        digMaxWait = digMaxWait.Text,
+        digEvery = digEvery.Text,
+        toolOn = toolOn,
+        -- Fish
+        fishOn = fishOn,
+        fishTpOn = fishTpOn,
+        targetLuck = targetLuckBox.Text,
+        tapDelay = tapDelayBox.Text,
+        biteWait = biteWaitBox.Text,
+        rodKeys = rodKeysBox.Text,
+        savedFishPos = vecToTable(savedFishPos),
+        -- Net
+        netOn = netOn,
+        netTpOn = netTpOn,
+        rarityFilter = rarityFilterBox.Text,
+        netKeys = netKeysBox.Text,
+        autoNetPullOn = autoNetPullOn,
+        -- Sell
+        sellOn = sellOn,
+        sellTpOn = sellTpOn,
+        sellRemoteMode = sellRemoteMode,
+        sellEvery = sellEvery.Text,
+        sellKeys = sellKeys.Text,
+        -- Misc / Anti AFK / Speed
+        afkOn = afkOn,
+        afkInterval = afkIntervalBox.Text,
+        speedOn = speedOn,
+        speedVal = speedVal.Text,
+        -- Cache koordinat Take Shovel
+        cachedTakeShovelPos = vecToTable(cachedTakeShovelPos),
+    }
+
+    local okEnc, jsonStr = pcall(function()
+        return HttpService:JSONEncode(payload)
+    end)
+    if not okEnc or not jsonStr then
+        if not silent then logLine("[config] Gagal encode JSON config.") end
+        return false
+    end
+
+    env.AutoDigSavedConfig = jsonStr
+    local savedToDisk = false
+    if writefile then
+        savedToDisk = pcall(writefile, CONFIG_FILE, jsonStr)
+    end
+
+    local timeStr = os.date("%H:%M:%S")
+    local activeList = {}
+    if digOn then activeList[#activeList + 1] = "Dig(Z" .. trim(zoneFilter.Text) .. ")" end
+    if fishOn then activeList[#activeList + 1] = "Fish" end
+    if netOn then activeList[#activeList + 1] = "Net" end
+    if sellOn then activeList[#activeList + 1] = "Sell" end
+    if afkOn then activeList[#activeList + 1] = "AFK" end
+    local activeSummary = (#activeList > 0) and table.concat(activeList, ", ") or "Tidak ada fitur aktif"
+
+    cfgStatusLbl.Text = string.format("Config Tersimpan (%s) [%s]\nAktif: %s", timeStr, savedToDisk and "File" or "Memori", activeSummary)
+    if not silent then
+        logLine("[config] Tersimpan (" .. (savedToDisk and CONFIG_FILE or "memori") .. ") | Aktif: " .. activeSummary)
+    end
+    return true
+end
+
+local function loadConfig(isStartup)
+    local rawJson = nil
+    if isfile and readfile then
+        local okExists, exists = pcall(isfile, CONFIG_FILE)
+        if okExists and exists then
+            local okRead, content = pcall(readfile, CONFIG_FILE)
+            if okRead and type(content) == "string" and content ~= "" then
+                rawJson = content
+            end
+        end
+    end
+    if not rawJson and type(env.AutoDigSavedConfig) == "string" then
+        rawJson = env.AutoDigSavedConfig
+    end
+
+    if not rawJson then
+        if not isStartup then
+            logLine("[config] Belum ada file config tersimpan.")
+            cfgStatusLbl.Text = "Config: Belum ada data tersimpan"
+        end
+        return false
+    end
+
+    local okDec, data = pcall(function()
+        return HttpService:JSONDecode(rawJson)
+    end)
+    if not okDec or type(data) ~= "table" then
+        if not isStartup then
+            logLine("[config] File config rusak / tidak terbaca.")
+        end
+        return false
+    end
+
+    if type(data.autoLoadOn) == "boolean" then
+        autoLoadOn = data.autoLoadOn
+        setToggle(autoLoadBtn, "Auto Load Config: ", autoLoadOn)
+    end
+
+    if isStartup and not autoLoadOn then
+        cfgStatusLbl.Text = "Config: Auto Load OFF (klik Load Config manual)"
+        logLine("[config] Auto Load Config sedang OFF, melewati load otomatis.")
+        return false
+    end
+
+    -- Pulihkan TextBoxes & Posisi
+    if data.zoneFilter ~= nil then zoneFilter.Text = tostring(data.zoneFilter) end
+    if data.glideSpeed ~= nil then glideSpeed.Text = tostring(data.glideSpeed) end
+    if data.digMaxWait ~= nil then digMaxWait.Text = tostring(data.digMaxWait) end
+    if data.digEvery ~= nil then digEvery.Text = tostring(data.digEvery) end
+
+    if data.targetLuck ~= nil then targetLuckBox.Text = tostring(data.targetLuck) end
+    if data.tapDelay ~= nil then tapDelayBox.Text = tostring(data.tapDelay) end
+    if data.biteWait ~= nil then biteWaitBox.Text = tostring(data.biteWait) end
+    if data.rodKeys ~= nil then rodKeysBox.Text = tostring(data.rodKeys) end
+    savedFishPos = tableToVec(data.savedFishPos) or savedFishPos
+
+    if data.rarityFilter ~= nil then rarityFilterBox.Text = tostring(data.rarityFilter) end
+    if data.netKeys ~= nil then netKeysBox.Text = tostring(data.netKeys) end
+
+    if data.sellEvery ~= nil then sellEvery.Text = tostring(data.sellEvery) end
+    if data.sellKeys ~= nil then sellKeys.Text = tostring(data.sellKeys) end
+
+    if data.afkInterval ~= nil then afkIntervalBox.Text = tostring(data.afkInterval) end
+    if data.speedVal ~= nil then speedVal.Text = tostring(data.speedVal) end
+    cachedTakeShovelPos = tableToVec(data.cachedTakeShovelPos) or cachedTakeShovelPos
+
+    -- Pulihkan Toggles Sub-Fitur
+    if type(data.digTpOn) == "boolean" then
+        digTpOn = data.digTpOn
+        setToggle(digTpBtn, "Teleport Dig: ", digTpOn, COL_PURPLE)
+    end
+    if type(data.autoTakeShovelOn) == "boolean" then
+        autoTakeShovelOn = data.autoTakeShovelOn
+        setToggle(autoShovelBtn, "Auto Ambil Shovel (TP): ", autoTakeShovelOn)
+    end
+    if type(data.glideOn) == "boolean" then
+        glideOn = data.glideOn
+        setToggle(glideBtn, "Auto Meluncur ke Titik: ", glideOn)
+        if not glideOn then stopGlide() end
+    end
+    if type(data.toolOn) == "boolean" then
+        toolOn = data.toolOn
+        setToggle(toolBtn, "Equip & klik shovel: ", toolOn)
+    end
+
+    if type(data.fishTpOn) == "boolean" then
+        fishTpOn = data.fishTpOn
+        setToggle(fishTpBtn, "Teleport Spot Fish: ", fishTpOn, COL_PURPLE)
+    end
+
+    if type(data.netTpOn) == "boolean" then
+        netTpOn = data.netTpOn
+        setToggle(netTpBtn, "Teleport Net: ", netTpOn, COL_PURPLE)
+    end
+    if type(data.autoNetPullOn) == "boolean" then
+        autoNetPullOn = data.autoNetPullOn
+        setToggle(autoNetToggleBtn, "Auto Nyalakan 'AUTO ON': ", autoNetPullOn)
+    end
+
+    if type(data.sellTpOn) == "boolean" then
+        sellTpOn = data.sellTpOn
+        setToggle(sellTpBtn, "Teleport Sell: ", sellTpOn, COL_PURPLE)
+    end
+    if type(data.sellRemoteMode) == "boolean" then
+        sellRemoteMode = data.sellRemoteMode
+        if sellTpOn and sellRemoteMode then sellRemoteMode = false end
+        sellModeBtn.Text = sellRemoteMode and "Mode: Remote / Tanpa Jalan" or "Mode: Ke Penjual"
+        sellModeBtn.BackgroundColor3 = sellRemoteMode and COL_BLUE or COL_ORANGE
+    end
+    if type(data.sellOn) == "boolean" then
+        sellOn = data.sellOn
+        setToggle(sellBtn, "Auto Sell: ", sellOn)
+    end
+
+    if type(data.speedOn) == "boolean" then
+        speedOn = data.speedOn
+        setToggle(speedBtn, "Speed Jalan: ", speedOn)
+    end
+    if type(data.afkOn) == "boolean" then
+        afkOn = data.afkOn
+        setToggle(afkBtn, "Anti AFK (Multi-Layer): ", afkOn)
+        updateAfkStatusLabel()
+    end
+
+    -- Pulihkan Mode Utama (Dig / Fish / Net)
+    local wantDig = (data.digOn == true)
+    local wantFish = (data.fishOn == true) and not wantDig
+    local wantNet = (data.netOn == true) and not wantDig and not wantFish
+
+    digOn = wantDig
+    fishOn = wantFish
+    netOn = wantNet
+
+    setToggle(digBtn, "Auto Dig: ", digOn)
+    setToggle(fishBtn, "Auto Fishing: ", fishOn)
+    setToggle(netBtn, "Auto Hunt Ikan Laut: ", netOn)
+
+    onZoneFilterChanged(false)
+    if fishOn and not savedFishPos then
+        local hrp = getHRP()
+        if hrp then savedFishPos = hrp.Position end
+    end
+
+    local timeStr = os.date("%H:%M:%S")
+    cfgStatusLbl.Text = string.format("Config Dimuat (%s) | Auto Load: %s", timeStr, autoLoadOn and "ON" or "OFF")
+    logLine("[config] Berhasil load config (" .. (isStartup and "Auto Load" or "Manual") .. ")!")
+    return true
+end
+
+topSaveBtn.Activated:Connect(function()
+    saveConfig(false)
+end)
+
+saveConfigBtn.Activated:Connect(function()
+    saveConfig(false)
+end)
+
+loadConfigBtn.Activated:Connect(function()
+    loadConfig(false)
+end)
+
+autoLoadBtn.Activated:Connect(function()
+    autoLoadOn = not autoLoadOn
+    setToggle(autoLoadBtn, "Auto Load Config: ", autoLoadOn)
+    saveConfig(true)
+    logLine("[config] Auto Load Config: " .. (autoLoadOn and "ON" or "OFF"))
 end)
 
 ---------------------------------------------------------------- Helper UI & Tap Layar
@@ -914,7 +1325,155 @@ local function fireOne(pp)
     if not (pp and pp.Parent and pp.Enabled) then return false end
     if not fireproximityprompt then return false end
     pcall(function() pp.HoldDuration = 0 end)
-    return pcall(fireproximityprompt, pp)
+    local ok = pcall(fireproximityprompt, pp)
+    if not ok then
+        ok = pcall(function() fireproximityprompt(pp, 0) end)
+    end
+    return ok
+end
+
+---------------------------------------------------------------- AUTO TAKE SHOVEL (TELEPORT AMBIL SHOVEL & KEMBALI KE ZONA DIG)
+local function findTakeShovelPrompt()
+    local kerangFolder = workspace:FindFirstChild("KerangSand")
+    local n = 0
+
+    for _, d in ipairs(workspace:GetDescendants()) do
+        n = n + 1
+        if n % 5000 == 0 then task.wait() end
+        if d:IsA("ProximityPrompt") then
+            local inKerang = kerangFolder and d:IsDescendantOf(kerangFolder)
+            if not inKerang then
+                local act = tostring(d.ActionText or ""):lower()
+                local obj = tostring(d.ObjectText or ""):lower()
+                local nm = tostring(d.Name or ""):lower()
+                local full = d:GetFullName():lower()
+
+                local isTakeShovel = act:find("take shovel", 1, true)
+                    or obj:find("free, for digging", 1, true)
+                    or obj:find("for digging", 1, true)
+                    or nm:find("takeshovel", 1, true)
+                    or full:find("takeshovel", 1, true)
+                    or ((act:find("take", 1, true) or act:find("ambil", 1, true) or obj:find("free", 1, true))
+                        and (act:find("shovel", 1, true) or obj:find("shovel", 1, true) or full:find("shovel", 1, true)))
+
+                if isTakeShovel then
+                    local pPos = getObjectPos(d)
+                    if pPos then
+                        cachedTakeShovelPos = pPos
+                    end
+                    return d, pPos
+                end
+            end
+        end
+    end
+    return nil, cachedTakeShovelPos
+end
+
+local function findBeachClubStandPos()
+    local keywords = { "beach club", "beachclub", "shovelstand", "shovelrack", "takeshovel" }
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("Model") or d:IsA("BasePart") or d:IsA("Folder") then
+            if hit(d.Name, keywords) then
+                local p = getObjectPos(d)
+                if p then return p end
+            end
+        end
+    end
+    return nil
+end
+
+local function acquireShovelAndReturn(returnDigPos)
+    if isTakingShovel then return false end
+
+    local keys = splitKeys(toolKeysText)
+    local existing = equipToolByKeys(keys)
+    if existing then return true end
+
+    isTakingShovel = true
+    local gotShovel = false
+
+    local ok, err = pcall(function()
+        local hrp = getHRP()
+        if not hrp then return end
+
+        local savedZonePos = returnDigPos or hrp.Position
+        logLine("[shovel] Shovel tidak ditemukan! Mencari lokasi TAKE SHOVEL...")
+        digStatusLbl.Text = "Status Dig: Shovel kosong -> Teleport ambil shovel..."
+
+        local takePP, takePos = findTakeShovelPrompt()
+
+        -- Jika prompt belum ter-stream karena jarak jauh, teleport ke koordinat cache / Beach Club dulu
+        if not takePP then
+            local fallbackStand = takePos or findBeachClubStandPos()
+            if fallbackStand then
+                teleportToDynamic(fallbackStand, 3.0)
+                task.wait(0.45)
+                takePP, takePos = findTakeShovelPrompt()
+            end
+        end
+
+        if not takePP and not takePos then
+            logLine("[shovel] Lokasi TAKE SHOVEL tidak ditemukan di map!")
+            digStatusLbl.Text = "Status Dig: Prompt TAKE SHOVEL tidak ditemukan!"
+            return
+        end
+
+        -- Teleport ke tempat pengambilan shovel (Beach Club)
+        local targetCoord = (takePP and getObjectPos(takePP)) or takePos
+        if targetCoord then
+            teleportToDynamic(targetCoord, 3.0)
+            task.wait(0.15)
+        end
+
+        if not takePP then
+            takePP = findTakeShovelPrompt()
+        end
+
+        -- Picu TAKE SHOVEL sampai Shovel masuk ke Backpack/Character
+        local tryStart = os.clock()
+        while alive and (os.clock() - tryStart) < 3.5 do
+            if findTool(keys) then
+                gotShovel = true
+                break
+            end
+
+            if takePP and takePP.Parent then
+                local ppPos = getObjectPos(takePP)
+                local hNow = getHRP()
+                if ppPos and hNow and (ppPos - hNow.Position).Magnitude > 8 then
+                    teleportToDynamic(ppPos, 3.0)
+                end
+                fireOne(takePP)
+            else
+                takePP = findTakeShovelPrompt()
+            end
+
+            task.wait(0.22)
+        end
+
+        if findTool(keys) then
+            gotShovel = true
+            equipToolByKeys(keys)
+            logLine("[shovel] Shovel berhasil diambil! Teleport kembali ke zona dig...")
+            digStatusLbl.Text = "Status Dig: Shovel didapat -> Kembali ke zona dig..."
+        else
+            logLine("[shovel] Gagal mengambil shovel (coba mendekat ke stand shovel).")
+        end
+
+        -- Teleport kembali ke zona dig sebelumnya
+        if savedZonePos then
+            task.wait(0.1)
+            teleportToDynamic(savedZonePos, 3.0)
+            task.wait(0.12)
+        end
+    end)
+
+    if not ok then
+        logLine("[shovel] error: " .. tostring(err))
+    end
+
+    isTakingShovel = false
+    return gotShovel
 end
 
 ---------------------------------------------------------------- DATABASE RARITY & SCAN IkanHidupRender
@@ -1744,7 +2303,7 @@ local function executeAutoSell()
     if isSelling then return end
 
     if not sellRemoteMode then
-        while alive and (isDigging or isFishing or isNetting) do
+        while alive and (isDigging or isTakingShovel or isFishing or isNetting) do
             task.wait(0.1)
         end
     end
@@ -1811,7 +2370,7 @@ task.spawn(function()
     end
 end)
 
----------------------------------------------------------------- Auto Dig (Filter Zona Kerang: Workspace.KerangSand.Sand_ZoneX)
+---------------------------------------------------------------- Auto Dig (Filter Zona Kerang + Auto Take Shovel)
 local function isDiggingUIActive()
     local pg = lp:FindFirstChild("PlayerGui")
     if not pg then return false end
@@ -1962,7 +2521,7 @@ local function nearbyPrompts()
 end
 
 local function digCycle(forceOnce)
-    if isSelling or isDigging or isFishing or isNetting then return 0, 0 end
+    if isSelling or isDigging or isTakingShovel or isFishing or isNetting then return 0, 0 end
     if isDiggingUIActive() then
         waitForDigComplete(nil, forceOnce)
         return 1, 1
@@ -1984,6 +2543,21 @@ local function digCycle(forceOnce)
     local pos = getObjectPos(pp) or target.pos
     local zoneName = target.zoneName
 
+    -- Cek apakah Shovel tersedia; jika tidak ada & Auto Ambil Shovel ON, teleport ambil lalu balik ke spot zona dig
+    local tool = nil
+    if toolOn or autoTakeShovelOn then
+        tool = equipToolByKeys(splitKeys(toolKeysText))
+        if not tool and autoTakeShovelOn then
+            local got = acquireShovelAndReturn(pos)
+            if not got or isSelling or (not digOn and not forceOnce) then
+                return 0, #list
+            end
+            tool = equipToolByKeys(splitKeys(toolKeysText))
+            hrp = getHRP()
+            if not hrp then return 0, #list end
+        end
+    end
+
     digStatusLbl.Text = string.format("Status Dig: %s | Aktif: %d (jarak=%.0f)", zoneName, #list, target.d)
 
     if pp ~= lastTarget then
@@ -2000,8 +2574,7 @@ local function digCycle(forceOnce)
         end
     end
 
-    local tool = nil
-    if toolOn then
+    if toolOn and not tool then
         tool = equipToolByKeys(splitKeys(toolKeysText))
     end
 
@@ -2020,7 +2593,7 @@ task.spawn(function()
     local lastWarn = 0
     while alive do
         local every = math.max(0.2, tonumber(digEvery.Text) or 0.3)
-        if digOn and not isSelling and not isDigging and not isFishing and not isNetting then
+        if digOn and not isSelling and not isDigging and not isTakingShovel and not isFishing and not isNetting then
             local ok, did, total = pcall(digCycle, false)
             if ok then
                 if total == 0 and os.clock() - lastWarn > 6 then
@@ -2034,6 +2607,14 @@ task.spawn(function()
         end
         task.wait(every)
     end
+end)
+
+takeShovelNowBtn.Activated:Connect(function()
+    task.spawn(function()
+        local hrp = getHRP()
+        local origin = hrp and hrp.Position or nil
+        acquireShovelAndReturn(origin)
+    end)
 end)
 
 onceBtn.Activated:Connect(function()
@@ -2068,6 +2649,13 @@ scanBtn.Activated:Connect(function()
             logLine(string.format("  %s: aktif=%d / %d", z, zoneStats[z].active, zoneStats[z].total))
         end
 
+        local takePP, takePos = findTakeShovelPrompt()
+        if takePP or takePos then
+            logLine(string.format("[TAKE SHOVEL] ditemukan (%s)", takePP and takePP.ActionText or "cache"))
+        else
+            logLine("[TAKE SHOVEL] belum ter-stream (akan otomatis teleport ke Beach Club)")
+        end
+
         local rareFishes = scanAllSeaFishes(false)
         logLine("[IkanHidupRender rare] cocok=" .. #rareFishes)
 
@@ -2085,7 +2673,7 @@ scanBtn.Activated:Connect(function()
     end)
 end)
 
----------------------------------------------------------------- Speed & Anti AFK
+---------------------------------------------------------------- Speed Jalan
 local baseSpeed = nil
 speedBtn.Activated:Connect(function()
     speedOn = not speedOn
@@ -2105,30 +2693,12 @@ table.insert(conns, RunService.Heartbeat:Connect(function()
     if hum.WalkSpeed ~= v then hum.WalkSpeed = v end
 end))
 
-table.insert(conns, lp.Idled:Connect(function()
-    if not afkOn then return end
-    pcall(function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new(0, 0))
-    end)
-end))
-task.spawn(function()
-    while alive do
-        task.wait(240)
-        if afkOn and alive then
-            pcall(function()
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.new(0, 0))
-            end)
-        end
-    end
-end)
-
----------------------------------------------------------------- Tutup
+---------------------------------------------------------------- Tutup & Auto Load Awal
 local function cleanup()
     alive = false
     stopGlide()
     isDigging = false
+    isTakingShovel = false
     isFishing = false
     isNetting = false
     local hum = getHum()
@@ -2139,4 +2709,9 @@ local function cleanup()
 end
 closeBtn.Activated:Connect(cleanup)
 env.AutoDigCleanup = cleanup
-logLine("Siap! Auto Dig terkunci ke KerangSand dengan default Zona 8 (Sand_Zone8).")
+
+-- Jalankan Auto Load Config saat skrip pertama kali dieksekusi
+local loadedAtStart = loadConfig(true)
+if not loadedAtStart then
+    logLine("Siap! Default Zona 8 + Auto Ambil Shovel + Save/Auto Load Config.")
+end
